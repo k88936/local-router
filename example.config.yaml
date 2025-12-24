@@ -1,0 +1,35 @@
+port: 11435
+providers:
+  - name: aliyun
+    url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    secret: sk
+    models:
+      - qwen3-coder-480b-a35b-instruct
+      - Moonshot-Kimi-K2-Instruct
+      - qwen3-max
+
+  - name: gitcode
+    url: https://api-ai.gitcode.com/v1
+    secret: jb
+    models:
+      - Qwen/Qwen3-Coder-480B-A35B-Instruct
+
+  - name: tsinghua
+    url: https://llmapi.paratera.com/v1
+    secret: sk
+    models:
+      - Qwen3-Coder-Plus
+      - GLM-4.6
+      - Kimi-K2
+
+  - name: openrouter
+    url: https://openrouter.ai/api/v1
+    secret: sk
+    models:
+      - anthropic/claude-sonnet-4.5
+
+  - name: zhipu
+    url: https://open.bigmodel.cn/api/coding/paas/v4
+    secret: sk
+    models:
+      - GLM-4.6
