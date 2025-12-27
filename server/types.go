@@ -11,6 +11,7 @@ type Provider struct {
 
 type Config struct {
 	Port      int        `yaml:"port"`
+	LogLevel  string     `yaml:"logLevel"`
 	Providers []Provider `yaml:"providers"`
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"strings"
 )
 
 func findConfigFile() string {
@@ -21,6 +22,21 @@ func findConfigFile() string {
 	panic("Failed to find example.config.yaml in HOME, USERPROFILE, or current directory")
 }
 
+func parseLogLevel(levelStr string) LogLevel {
+	switch strings.ToUpper(levelStr) {
+	case "DEBUG":
+		return DEBUG
+	case "INFO":
+		return INFO
+	case "WARN", "WARNING":
+		return WARN
+	case "ERROR":
+		return ERROR
+	default:
+		return INFO
+	}
+}
+
 func main() {
 	configPath := findConfigFile()
 	config, err := loadConfig(configPath)
@@ -32,13 +48,18 @@ func main() {
 		log.Panicf("Config validation failed: %v", err)
 	}
 
-	log.Printf("Loaded configuration for %d providers", len(config.Providers))
+	// Initialize logger with configured level
+	logLevel := parseLogLevel(config.LogLevel)
+	InitLogger(logLevel)
+	logger := GetLogger()
+
+	logger.Info("Loaded configuration for %d providers", len(config.Providers))
 	for i, provider := range config.Providers {
-		log.Printf("Provider %d: %s with %d models", i+1, provider.Name, len(provider.Models))
+		logger.Info("Provider %d: %s with %d models", i+1, provider.Name, len(provider.Models))
 	}
 
 	server := NewServer(config, configPath)
 	if err := server.Start(); err != nil {
-		log.Panicf("Failed to start server: %v", err)
+		logger.Panic("Failed to start server: %v", err)
 	}
 }

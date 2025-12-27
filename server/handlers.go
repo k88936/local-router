@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -38,16 +37,16 @@ func (s *Server) ModelsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("ERROR: Failed to encode models response: %v", err)
+		GetLogger().Error("Failed to encode models response: %v", err)
 	}
 }
 
 func (s *Server) ForwardRequest(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Received %s request to %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+	GetLogger().Info("Received %s request to %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Printf("ERROR: Failed to read request body: %v", err)
+		GetLogger().Error("Failed to read request body: %v", err)
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
@@ -55,16 +54,30 @@ func (s *Server) ForwardRequest(w http.ResponseWriter, r *http.Request) {
 
 	var requestBody map[string]interface{}
 	if err := json.Unmarshal(body, &requestBody); err != nil {
-		log.Printf("ERROR: Failed to parse request body: %v", err)
+		GetLogger().Error("Failed to parse request body: %v", err)
 		http.Error(w, "Failed to parse request body", http.StatusBadRequest)
 		return
 	}
 
 	modelName, ok := requestBody["model"].(string)
 	if !ok {
-		log.Printf("ERROR: Model not specified in request")
+		GetLogger().Error("Model not specified in request")
 		http.Error(w, "Model not specified", http.StatusBadRequest)
 		return
+	}
+
+	// Log the last user message from the conversation history
+	if messages, ok := requestBody["messages"].([]interface{}); ok {
+		for i := len(messages) - 1; i >= 0; i-- {
+			if msg, ok := messages[i].(map[string]interface{}); ok {
+				if role, ok := msg["role"].(string); ok && role == "user" {
+					if content, ok := msg["content"].(string); ok {
+						GetLogger().Info("Last user message: %s", content)
+						break
+					}
+				}
+			}
+		}
 	}
 
 	s.mu.RLock()
@@ -72,7 +85,7 @@ func (s *Server) ForwardRequest(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	if provider == nil {
-		log.Printf("ERROR: Provider not found for model: %s", modelName)
+		GetLogger().Error("Provider not found for model: %s", modelName)
 		http.Error(w, "Provider not found for model: "+modelName, http.StatusBadRequest)
 		return
 	}
@@ -85,14 +98,14 @@ func (s *Server) ForwardRequest(w http.ResponseWriter, r *http.Request) {
 
 	newBody, err := json.Marshal(requestBody)
 	if err != nil {
-		log.Printf("ERROR: Failed to marshal request body: %v", err)
+		GetLogger().Error("Failed to marshal request body: %v", err)
 		http.Error(w, "Failed to marshal request body", http.StatusInternalServerError)
 		return
 	}
 
 	targetURL, err := url.Parse(provider.URL)
 	if err != nil {
-		log.Printf("ERROR: Invalid provider URL %s: %v", provider.URL, err)
+		GetLogger().Error("Invalid provider URL %s: %v", provider.URL, err)
 		http.Error(w, "Invalid provider URL", http.StatusInternalServerError)
 		return
 	}
@@ -102,7 +115,7 @@ func (s *Server) ForwardRequest(w http.ResponseWriter, r *http.Request) {
 
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL.String(), bytes.NewBuffer(newBody))
 	if err != nil {
-		log.Printf("ERROR: Failed to create request: %v", err)
+		GetLogger().Error("Failed to create request: %v", err)
 		http.Error(w, "Failed to create request", http.StatusInternalServerError)
 		return
 	}
@@ -117,7 +130,7 @@ func (s *Server) ForwardRequest(w http.ResponseWriter, r *http.Request) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("ERROR: Failed to forward request to provider: %v", err)
+		GetLogger().Error("Failed to forward request to provider: %v", err)
 		http.Error(w, "Failed to forward request", http.StatusInternalServerError)
 		return
 	}
@@ -145,7 +158,7 @@ func (s *Server) ConfigReloadHandler(w http.ResponseWriter, r *http.Request) {
 
 	newConfig, err := loadConfig(s.configPath)
 	if err != nil {
-		log.Printf("ERROR: Failed to reload config: %v", err)
+		GetLogger().Error("Failed to reload config: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error":   "Failed to reload config",
@@ -155,7 +168,7 @@ func (s *Server) ConfigReloadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := newConfig.Validate(); err != nil {
-		log.Printf("ERROR: Config validation failed during reload: %v", err)
+		GetLogger().Error("Config validation failed during reload: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error":   "Config validation failed",
@@ -165,7 +178,7 @@ func (s *Server) ConfigReloadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.config = newConfig
-	log.Printf("Successfully reloaded configuration for %d providers", len(s.config.Providers))
+	GetLogger().Info("Successfully reloaded configuration for %d providers", len(s.config.Providers))
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -183,7 +196,7 @@ func (s *Server) OpenAPIHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if _, err := w.Write(openAPISpec); err != nil {
-		log.Printf("ERROR: Failed to write OpenAPI spec: %v", err)
+		GetLogger().Error("Failed to write OpenAPI spec: %v", err)
 		http.Error(w, "Failed to write OpenAPI spec", http.StatusInternalServerError)
 	}
 }
@@ -216,7 +229,7 @@ func (s *Server) HandleStreamResponse(w http.ResponseWriter, body io.ReadCloser,
 
 			var chunk map[string]interface{}
 			if err := json.Unmarshal([]byte(dataStr), &chunk); err != nil {
-				log.Printf("WARNING: Failed to parse chunk: %v", err)
+				GetLogger().Warn("Failed to parse chunk: %v", err)
 				continue
 			}
 
@@ -265,10 +278,10 @@ func (s *Server) HandleStreamResponse(w http.ResponseWriter, body io.ReadCloser,
 	}
 
 	if err := scanner.Err(); err != nil {
-		log.Printf("ERROR: Scanner error during stream processing: %v", err)
+		GetLogger().Error("Scanner error during stream processing: %v", err)
 	}
 
-	if !isClientStreaming && firstResponse != nil {
+	if firstResponse != nil {
 		if choices, ok := firstResponse["choices"].([]interface{}); ok && len(choices) > 0 {
 			if choice, ok := choices[0].(map[string]interface{}); ok {
 				if _, ok := choice["delta"]; ok {
@@ -280,14 +293,16 @@ func (s *Server) HandleStreamResponse(w http.ResponseWriter, body io.ReadCloser,
 				}
 			}
 		}
+		if isClientStreaming {
+			GetLogger().Info("Assistant response: %s", fullContent.String())
+			return
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(firstResponse); err != nil {
-			log.Printf("ERROR: Failed to encode complete response: %v", err)
+			GetLogger().Error("Failed to encode complete response: %v", err)
 		} else {
-			log.Printf("Successfully sent non-streaming response with %d chunks processed", chunkCount)
+			GetLogger().Info("Successfully sent non-streaming response with %d chunks processed", chunkCount)
 		}
-	} else if isClientStreaming {
-		log.Printf("Successfully sent streaming response with %d chunks processed", chunkCount)
 	}
 }

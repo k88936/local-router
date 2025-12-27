@@ -3,21 +3,20 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 )
 
 func (s *Server) loggingMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("ENDPOINT CALLED: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+		GetLogger().Info("ENDPOINT CALLED: %s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
 		next.ServeHTTP(w, r)
 	}
 }
 
 func (s *Server) logAllRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("REQUEST ATTEMPT: %s %s from %s - User-Agent: %s", r.Method, r.URL.Path, r.RemoteAddr, r.UserAgent())
+		GetLogger().Info("REQUEST ATTEMPT: %s %s from %s - User-Agent: %s", r.Method, r.URL.Path, r.RemoteAddr, r.UserAgent())
 		next.ServeHTTP(w, r)
 	})
 }
@@ -51,8 +50,9 @@ func (s *Server) SetupRoutes() http.Handler {
 
 func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.config.Port)
-	log.Printf("Starting server on port %d", s.config.Port)
-	log.Printf("Server ready to accept connections")
+	logger := GetLogger()
+	logger.Info("Starting server on port %d", s.config.Port)
+	logger.Info("Server ready to accept connections")
 
 	handler := s.SetupRoutes()
 	server := &http.Server{
