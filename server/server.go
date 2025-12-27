@@ -39,6 +39,10 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/v1/models", s.loggingMiddleware(s.ModelsHandler))
 	mux.HandleFunc("/v1/chat/completions", s.loggingMiddleware(s.ForwardRequest))
 
+	// Local Router API endpoints
+	mux.HandleFunc("/local-router/api/config/reload", s.loggingMiddleware(s.ConfigReloadHandler))
+	mux.HandleFunc("/local-router/api/openapi.json", s.loggingMiddleware(s.OpenAPIHandler))
+
 	handler := s.logAllRequests(mux)
 	handler = s.timeoutMiddleware(30 * time.Second)(handler)
 

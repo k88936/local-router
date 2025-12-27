@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,8 +13,14 @@ import (
 	"strings"
 )
 
+//go:embed openapi.json
+var openAPISpec []byte
+
 func (s *Server) ModelsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	var models []Model
 	for _, provider := range s.config.Providers {
@@ -60,7 +67,10 @@ func (s *Server) ForwardRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.mu.RLock()
 	provider := s.FindProvider(modelName)
+	s.mu.RUnlock()
+
 	if provider == nil {
 		log.Printf("ERROR: Provider not found for model: %s", modelName)
 		http.Error(w, "Provider not found for model: "+modelName, http.StatusBadRequest)
@@ -120,6 +130,62 @@ func (s *Server) ForwardRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.HandleStreamResponse(w, resp.Body, clientRequestedStream, resp.StatusCode, modelName)
+}
+
+func (s *Server) ConfigReloadHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	newConfig, err := loadConfig(s.configPath)
+	if err != nil {
+		log.Printf("ERROR: Failed to reload config: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Failed to reload config",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	if err := newConfig.Validate(); err != nil {
+		log.Printf("ERROR: Config validation failed during reload: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "Config validation failed",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	s.config = newConfig
+	log.Printf("Successfully reloaded configuration for %d providers", len(s.config.Providers))
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":   "Configuration reloaded successfully",
+		"providers": len(s.config.Providers),
+	})
+}
+
+func (s *Server) OpenAPIHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if _, err := w.Write(openAPISpec); err != nil {
+		log.Printf("ERROR: Failed to write OpenAPI spec: %v", err)
+		http.Error(w, "Failed to write OpenAPI spec", http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) HandleStreamResponse(w http.ResponseWriter, body io.ReadCloser, isClientStreaming bool, statusCode int, modelName string) {

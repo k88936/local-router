@@ -37,7 +37,7 @@ func main() {
 		log.Printf("Provider %d: %s with %d models", i+1, provider.Name, len(provider.Models))
 	}
 
-	server := NewServer(config)
+	server := NewServer(config, configPath)
 	if err := server.Start(); err != nil {
 		log.Panicf("Failed to start server: %v", err)
 	}

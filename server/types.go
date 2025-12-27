@@ -1,5 +1,7 @@
 package main
 
+import "sync"
+
 type Provider struct {
 	Name   string   `yaml:"name"`
 	URL    string   `yaml:"url"`
@@ -65,16 +67,22 @@ type ChatCompletionResponse struct {
 }
 
 type Server struct {
-	config *Config
+	config     *Config
+	configPath string
+	mu         sync.RWMutex
 }
 
-func NewServer(config *Config) *Server {
+func NewServer(config *Config, configPath string) *Server {
 	return &Server{
-		config: config,
+		config:     config,
+		configPath: configPath,
 	}
 }
 
 func (s *Server) FindProvider(modelName string) *Provider {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	for i, provider := range s.config.Providers {
 		if len(modelName) > len(provider.Name)+2 &&
 			modelName[0] == '[' &&
