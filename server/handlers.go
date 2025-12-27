@@ -52,37 +52,28 @@ func (s *Server) ForwardRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	var requestBody map[string]interface{}
-	if err := json.Unmarshal(body, &requestBody); err != nil {
+	var requestBodyMap map[string]interface{}
+	if err := json.Unmarshal(body, &requestBodyMap); err != nil {
 		GetLogger().Error("Failed to parse request body: %v", err)
 		http.Error(w, "Failed to parse request body", http.StatusBadRequest)
 		return
 	}
 
-	modelName, ok := requestBody["model"].(string)
-	if !ok {
+	var request ChatCompletionRequest
+	if err := request.FromMap(requestBodyMap); err != nil {
+		GetLogger().Error("Failed to convert request body: %v", err)
+		http.Error(w, "Failed to convert request body", http.StatusBadRequest)
+		return
+	}
+
+	modelName := request.Model
+	if modelName == "" {
 		GetLogger().Error("Model not specified in request")
 		http.Error(w, "Model not specified", http.StatusBadRequest)
 		return
 	}
 
-	// Log the last user message from the conversation history
-	if messages, ok := requestBody["messages"].([]interface{}); ok {
-		for i := len(messages) - 1; i >= 0; i-- {
-			if msg, ok := messages[i].(map[string]interface{}); ok {
-				if role, ok := msg["role"].(string); ok && role == "user" {
-					if content, ok := msg["content"].(string); ok {
-						GetLogger().Info("Last user message: %s", content)
-						break
-					}
-				}
-			}
-		}
-	}
-
-	s.mu.RLock()
 	provider := s.FindProvider(modelName)
-	s.mu.RUnlock()
 
 	if provider == nil {
 		GetLogger().Error("Provider not found for model: %s", modelName)
@@ -90,13 +81,24 @@ func (s *Server) ForwardRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientRequestedStream, _ := requestBody["stream"].(bool)
+	clientRequestedStream := request.Stream
 
 	actualModelName := s.GetActualModelName(modelName)
-	requestBody["model"] = actualModelName
-	requestBody["stream"] = true
 
-	newBody, err := json.Marshal(requestBody)
+	// Update the request for forwarding
+	forwardRequest := request.ToMap()
+	forwardRequest["model"] = actualModelName
+	forwardRequest["stream"] = true
+
+	// Log the last user message from the conversation history
+	for i := len(request.Messages) - 1; i >= 0; i-- {
+		if request.Messages[i].Role == "user" {
+			GetLogger().Info("Last user message: %s", request.Messages[i].Content)
+			break
+		}
+	}
+
+	newBody, err := json.Marshal(forwardRequest)
 	if err != nil {
 		GetLogger().Error("Failed to marshal request body: %v", err)
 		http.Error(w, "Failed to marshal request body", http.StatusInternalServerError)
@@ -238,39 +240,49 @@ func (s *Server) HandleStreamResponse(w http.ResponseWriter, body io.ReadCloser,
 				firstResponse = chunk
 			}
 
-			if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
-				if choice, ok := choices[0].(map[string]interface{}); ok {
-					if delta, ok := choice["delta"].(map[string]interface{}); ok {
-						if content, ok := delta["content"].(string); ok {
-							fullContent.WriteString(content)
-						}
+			var responseChunk ChatCompletionResponse
+			if err := responseChunk.FromMap(chunk); err != nil {
+				GetLogger().Warn("Failed to parse chunk: %v", err)
+				continue
+			}
 
-						if isClientStreaming {
-							reconstructedChunk := make(map[string]interface{})
-							for k, v := range chunk {
-								reconstructedChunk[k] = v
-							}
+			if len(responseChunk.Choices) > 0 && responseChunk.Choices[0].Delta != nil {
+				delta := responseChunk.Choices[0].Delta
+				if delta.Content != "" {
+					fullContent.WriteString(delta.Content)
+				}
 
-							if id, ok := chunk["id"].(string); ok {
-								reconstructedChunk["id"] = id
-							} else if id, ok := chunk["trace_id"].(string); ok {
-								reconstructedChunk["id"] = id
-							}
+				if isClientStreaming {
+					reconstructedChunk := chunk
 
-							reconstructedChunk["object"] = "chat.completion.chunk"
-							reconstructedChunk["model"] = modelName
+					// Set ID
+					if responseChunk.ID != "" {
+						reconstructedChunk["id"] = responseChunk.ID
+					} else if traceID, ok := chunk["trace_id"].(string); ok {
+						reconstructedChunk["id"] = traceID
+					}
 
-							if toolCalls, ok := delta["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
-								if call, ok := toolCalls[0].(map[string]interface{}); ok {
-									call["id"] = reconstructedChunk["id"]
+					reconstructedChunk["object"] = "chat.completion.chunk"
+					reconstructedChunk["model"] = modelName
+
+					// Handle tool calls if needed
+					if len(delta.ToolCalls) > 0 {
+						if choices, ok := reconstructedChunk["choices"].([]interface{}); ok && len(choices) > 0 {
+							if choice, ok := choices[0].(map[string]interface{}); ok {
+								if deltaMap, ok := choice["delta"].(map[string]interface{}); ok {
+									if toolCalls, ok := deltaMap["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
+										if call, ok := toolCalls[0].(map[string]interface{}); ok {
+											call["id"] = reconstructedChunk["id"]
+										}
+									}
 								}
 							}
-
-							if reconstructedData, err := json.Marshal(reconstructedChunk); err == nil {
-								fmt.Fprintf(w, "data: %s\n\n", string(reconstructedData))
-								flusher.Flush()
-							}
 						}
+					}
+
+					if reconstructedData, err := json.Marshal(reconstructedChunk); err == nil {
+						fmt.Fprintf(w, "data: %s\n\n", string(reconstructedData))
+						flusher.Flush()
 					}
 				}
 			}
@@ -282,24 +294,27 @@ func (s *Server) HandleStreamResponse(w http.ResponseWriter, body io.ReadCloser,
 	}
 
 	if firstResponse != nil {
-		if choices, ok := firstResponse["choices"].([]interface{}); ok && len(choices) > 0 {
-			if choice, ok := choices[0].(map[string]interface{}); ok {
-				if _, ok := choice["delta"]; ok {
-					delete(choice, "delta")
-					choice["message"] = map[string]interface{}{
-						"role":    "assistant",
-						"content": fullContent.String(),
-					}
-				}
+		var finalResponse ChatCompletionResponse
+		if err := finalResponse.FromMap(firstResponse); err != nil {
+			GetLogger().Warn("Failed to parse final response: %v", err)
+		} else if len(finalResponse.Choices) > 0 && finalResponse.Choices[0].Delta != nil {
+			// Convert delta to message for non-streaming response
+			finalResponse.Choices[0].Delta = nil
+			finalResponse.Choices[0].Message = &ChatMessage{
+				Role:    "assistant",
+				Content: fullContent.String(),
 			}
 		}
+
 		if isClientStreaming {
 			GetLogger().Info("Assistant response: %s", fullContent.String())
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(firstResponse); err != nil {
+		responseData := finalResponse.ToMap()
+		responseData["choices"] = firstResponse["choices"] // Keep original choices structure
+		if err := json.NewEncoder(w).Encode(responseData); err != nil {
 			GetLogger().Error("Failed to encode complete response: %v", err)
 		} else {
 			GetLogger().Info("Successfully sent non-streaming response with %d chunks processed", chunkCount)
