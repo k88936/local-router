@@ -1,0 +1,21 @@
+GET http://localhost:11436/v1/models
+Accept: application/json
+
+###
+POST http://localhost:11436/v1/chat/completions
+Content-Type: application/json
+
+{
+  "model": "[tsinghua]Qwen3-Coder-Plus",
+  "stream": true,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant."
+    },
+    {
+      "role": "user",
+      "content": "你是谁？"
+    }
+  ]
+}
