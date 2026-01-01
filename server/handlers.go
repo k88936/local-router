@@ -256,13 +256,7 @@ func (s *Server) HandleStreamResponse(w http.ResponseWriter, body io.ReadCloser,
 					reconstructedChunk := chunk
 
 					// Set ID
-					if responseChunk.ID != "" {
-						reconstructedChunk["id"] = responseChunk.ID
-					} else if traceID, ok := chunk["trace_id"].(string); ok {
-						reconstructedChunk["id"] = traceID
-					}
 
-					reconstructedChunk["object"] = "chat.completion.chunk"
 					reconstructedChunk["model"] = modelName
 
 					// Handle tool calls if needed

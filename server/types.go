@@ -1,6 +1,9 @@
 package main
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 type Provider struct {
 	Name   string   `yaml:"name"`
@@ -119,13 +122,24 @@ type ChatCompletionResponse struct {
 func (r *ChatCompletionResponse) FromMap(data map[string]interface{}) error {
 	if id, ok := data["id"].(string); ok {
 		r.ID = id
+	} else if traceID, ok := data["trace_id"].(string); ok {
+		r.ID = traceID
+	} else {
+		panic("chunk missing field: id")
 	}
+
 	if object, ok := data["object"].(string); ok {
 		r.Object = object
+	} else {
+		r.Object = "chat.completion.chunk"
 	}
+
 	if created, ok := data["created"].(float64); ok {
 		r.Created = int64(created)
+	} else {
+		r.Created = time.Now().Unix()
 	}
+
 	if model, ok := data["model"].(string); ok {
 		r.Model = model
 	}
