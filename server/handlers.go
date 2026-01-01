@@ -253,33 +253,9 @@ func (s *Server) HandleStreamResponse(w http.ResponseWriter, body io.ReadCloser,
 				}
 
 				if isClientStreaming {
-					reconstructedChunk := chunk
+					reconstructedChunk := responseChunk
 
-					// Set ID
-					if responseChunk.ID != "" {
-						reconstructedChunk["id"] = responseChunk.ID
-					} else if traceID, ok := chunk["trace_id"].(string); ok {
-						reconstructedChunk["id"] = traceID
-					}
-
-					reconstructedChunk["object"] = "chat.completion.chunk"
-					reconstructedChunk["model"] = modelName
-
-					// Handle tool calls if needed
-					if len(delta.ToolCalls) > 0 {
-						if choices, ok := reconstructedChunk["choices"].([]interface{}); ok && len(choices) > 0 {
-							if choice, ok := choices[0].(map[string]interface{}); ok {
-								if deltaMap, ok := choice["delta"].(map[string]interface{}); ok {
-									if toolCalls, ok := deltaMap["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
-										if call, ok := toolCalls[0].(map[string]interface{}); ok {
-											call["id"] = reconstructedChunk["id"]
-										}
-									}
-								}
-							}
-						}
-					}
-
+					reconstructedChunk.Model = modelName
 					if reconstructedData, err := json.Marshal(reconstructedChunk); err == nil {
 						fmt.Fprintf(w, "data: %s\n\n", string(reconstructedData))
 						flusher.Flush()

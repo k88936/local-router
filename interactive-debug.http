@@ -19,3 +19,64 @@ Content-Type: application/json
     }
   ]
 }
+
+###
+POST http://localhost:11436/v1/chat/completions
+Content-Type: application/json
+
+{
+  "model": "[gitcode]Qwen/Qwen3-Coder-480B-A35B-Instruct",
+  "stream": true,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant."
+    },
+    {
+      "role": "user",
+      "content": "你是谁？"
+    }
+  ]
+}
+
+###
+POST http://localhost:11436/v1/chat/completions
+Content-Type: application/json
+
+{
+  "model": "[aliyun]qwen3-max",
+  "stream": true,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant."
+    },
+    {
+      "role": "user",
+      "content": "你是谁？"
+    }
+  ]
+}
+
+###
+GET http://localhost:11435/v1/models
+Accept: application/json
+
+###
+POST http://localhost:11435/v1/chat/completions
+Content-Type: application/json
+
+{
+  "model": "[aliyun]qwen-max",
+  "stream": true,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant."
+    },
+    {
+      "role": "user",
+      "content": "你是谁？"
+    }
+  ]
+}
