@@ -84,6 +84,8 @@ func (s *Server) ForwardRequest(w http.ResponseWriter, r *http.Request) {
 	clientRequestedStream := request.Stream
 
 	actualModelName := s.GetActualModelName(modelName)
+	release := s.acquireSlot(provider.Name)
+	defer release()
 
 	// Update the request for forwarding
 	forwardRequest := request.ToMap()
@@ -180,6 +182,7 @@ func (s *Server) ConfigReloadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.config = newConfig
+	s.initLimiters()
 	GetLogger().Info("Successfully reloaded configuration for %d providers", len(s.config.Providers))
 
 	w.WriteHeader(http.StatusOK)

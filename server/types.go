@@ -6,10 +6,11 @@ import (
 )
 
 type Provider struct {
-	Name   string   `yaml:"name"`
-	URL    string   `yaml:"url"`
-	Secret string   `yaml:"secret"`
-	Models []string `yaml:"models"`
+	Name            string   `yaml:"name"`
+	URL             string   `yaml:"url"`
+	Secret          string   `yaml:"secret"`
+	Models          []string `yaml:"models"`
+	ConcurrentLimit int      `yaml:"concurrentLimit"`
 }
 
 type Config struct {
@@ -251,13 +252,33 @@ type Server struct {
 	config     *Config
 	configPath string
 	mu         sync.RWMutex
+	limiters   map[string]chan struct{}
 }
 
 func NewServer(config *Config, configPath string) *Server {
-	return &Server{
+	s := &Server{
 		config:     config,
 		configPath: configPath,
+		limiters:   make(map[string]chan struct{}),
 	}
+	s.initLimiters()
+	return s
+}
+
+func (s *Server) initLimiters() {
+	for _, provider := range s.config.Providers {
+		if provider.ConcurrentLimit > 0 {
+			s.limiters[provider.Name] = make(chan struct{}, provider.ConcurrentLimit)
+		}
+	}
+}
+
+func (s *Server) acquireSlot(providerName string) func() {
+	if limiter, ok := s.limiters[providerName]; ok {
+		limiter <- struct{}{}
+		return func() { <-limiter }
+	}
+	return func() {}
 }
 
 func (s *Server) FindProvider(modelName string) *Provider {
